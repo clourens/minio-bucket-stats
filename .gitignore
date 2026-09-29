@@ -1,0 +1,22 @@
+# MinIO credentials/config
+.mc/
+mc-config/
+
+# Environment and secrets
+.env
+.env.*
+*.secret
+*.secrets
+credentials*
+
+# Generated output
+*.json
+*.log
+*.tmp
+tmp/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
