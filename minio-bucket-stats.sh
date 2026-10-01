@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.0.0"
+VERSION="2.1.0"
 TOP_N=15
 NO_OBJECTS=false
 TRAFFIC_ONLY=false
 JSON_OUTPUT=false
+INCLUDE_OBJECTS=false
 
 usage() {
 cat <<EOF
@@ -20,6 +21,7 @@ Opties:
       --no-objects     Sla recursieve objectanalyse over
       --traffic-only   Toon alleen API-/trafficstatistieken
       --json           Geef machine-leesbare JSON-output
+      --include-objects Voeg alle objecten toe aan JSON-output
       --version        Toon scriptversie
 EOF
 }
@@ -53,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --no-objects) NO_OBJECTS=true; shift ;;
     --traffic-only) TRAFFIC_ONLY=true; NO_OBJECTS=true; shift ;;
     --json) JSON_OUTPUT=true; shift ;;
+    --include-objects) INCLUDE_OBJECTS=true; shift ;;
     --) shift; while [[ $# -gt 0 ]]; do ARGS+=("$1"); shift; done ;;
     -*) die "Onbekende optie: $1. Gebruik --help." ;;
     *) ARGS+=("$1"); shift ;;
@@ -64,6 +67,8 @@ ALIAS="${ARGS[0]}"
 BUCKET="${ARGS[1]}"
 TARGET="${ALIAS}/${BUCKET}"
 [[ "$TOP_N" =~ ^[1-9][0-9]*$ ]] || die "--top moet een positief geheel getal zijn."
+$INCLUDE_OBJECTS && ! $JSON_OUTPUT && die "--include-objects vereist --json."
+$INCLUDE_OBJECTS && $NO_OBJECTS && die "--include-objects kan niet samen met --no-objects of --traffic-only."
 
 for cmd in mc jq; do command -v "$cmd" >/dev/null 2>&1 || die "'$cmd' is niet geïnstalleerd."; done
 mc stat "$TARGET" >/dev/null 2>&1 || die "Bucket '$TARGET' kan niet worden benaderd."
@@ -103,7 +108,18 @@ if $JSON_OUTPUT; then
   if ! $NO_OBJECTS; then
     largest="$(jq -s --argjson n "$TOP_N" '[.[]|select((.size?|type)=="number")|{key:(.key//.name//"<unknown>"),size_bytes:.size}]|sort_by(.size_bytes)|reverse|.[:$n]' "$OBJECTS")"
     prefixes="$(jq -s '[.[]|select((.size?|type)=="number")|{key:(.key//.name//""),size:.size}]|group_by(.key|split("/")[0])|map({prefix:(.[0].key|split("/")[0]),objects:length,size_bytes:(map(.size)|add//0)})|sort_by(.size_bytes)|reverse' "$OBJECTS")"
-  else largest='[]'; prefixes='[]'; fi
+    if $INCLUDE_OBJECTS; then
+      all_objects="$(jq -s '[.[]|select((.size?|type)=="number")|{
+        key:(.key//.name//"<unknown>"),
+        size_bytes:.size,
+        last_modified:(.lastModified//null),
+        etag:(.etag//null),
+        type:(.type//null)
+      }]' "$OBJECTS")"
+    else
+      all_objects='[]'
+    fi
+  else largest='[]'; prefixes='[]'; all_objects='[]'; fi
 
   api_json="$(for api in "${APIS[@]}"; do printf '%s\t%s\n' "$api" "${API_COUNTS[$api]:-0}"; done | jq -Rn '[inputs|split("\t")|{key:.[0],value:(.[1]|tonumber)}]|from_entries')"
   jq -n --arg version "$VERSION" --arg generated "$GENERATED" --arg alias "$ALIAS" --arg bucket "$BUCKET" \
@@ -112,11 +128,11 @@ if $JSON_OUTPUT; then
     --argjson count "$OBJECT_COUNT" --argjson total "$TOTAL_BYTES" --argjson avg "$AVG_BYTES" \
     --argjson min "$MIN_BYTES" --argjson max "$MAX_BYTES" --argjson received "$RECEIVED" \
     --argjson sent "$SENT" --argjson err4 "$ERR4" --argjson err5 "$ERR5" \
-    --argjson apis "$api_json" --argjson largest "$largest" --argjson prefixes "$prefixes" \
+    --argjson apis "$api_json" --argjson largest "$largest" --argjson prefixes "$prefixes" --argjson objects "$all_objects" \
     '{script_version:$version,generated:$generated,alias:$alias,bucket:$bucket,object_analysis:$object_analysis,
       storage:{object_count:$count,total_bytes:$total,average_object_bytes:$avg,smallest_object_bytes:$min,largest_object_bytes:$max},
       traffic:{metrics_available:$metrics_available,received_bytes:$received,sent_bytes:$sent,errors_4xx:$err4,errors_5xx:$err5,api_requests:$apis},
-      largest_objects:$largest,top_level_prefixes:$prefixes}'
+      largest_objects:$largest,top_level_prefixes:$prefixes,objects:$objects}'
   exit 0
 fi
 
