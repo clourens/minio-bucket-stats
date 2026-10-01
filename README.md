@@ -42,6 +42,7 @@ chmod +x minio-bucket-stats.sh
 ./minio-bucket-stats.sh --no-objects minio backups
 ./minio-bucket-stats.sh --traffic-only minio backups
 ./minio-bucket-stats.sh --json minio backups
+./minio-bucket-stats.sh --json --include-objects minio backups
 ```
 
 ## Opties
@@ -53,6 +54,7 @@ chmod +x minio-bucket-stats.sh
 | `--no-objects` | Sla de volledige recursieve objectinventarisatie over |
 | `--traffic-only` | Toon alleen API- en dataverkeerstatistieken |
 | `--json` | Machine-leesbare JSON-output |
+| `--include-objects` | Voeg alle objecten met metadata toe aan de JSON-output; vereist `--json` |
 | `--version` | Toon de scriptversie |
 
 ## Beschikbare statistieken
@@ -94,6 +96,34 @@ Dit kan aanvullende adminrechten vereisen.
 ./minio-bucket-stats.sh --json minio backups | jq '.storage.total_bytes'
 ./minio-bucket-stats.sh --json minio backups | jq '.traffic.sent_bytes'
 ```
+
+### Alle objecten in JSON
+
+Om naast de samenvatting ook ieder object in de bucket op te nemen:
+
+```bash
+./minio-bucket-stats.sh --json --include-objects minio backups > bucket-stats.json
+```
+
+De JSON bevat dan een `objects`-array. Per object worden, waar beschikbaar, onder meer de key, grootte in bytes, laatste wijzigingsdatum, ETag en type opgenomen.
+
+Bijvoorbeeld:
+
+```json
+{
+  "objects": [
+    {
+      "key": "backup/database.sql.gz",
+      "size_bytes": 123456789,
+      "last_modified": "2026-10-01T10:30:00Z",
+      "etag": "...",
+      "type": "file"
+    }
+  ]
+}
+```
+
+Deze optie kan grote JSON-bestanden opleveren en vereist een volledige recursieve objectlisting. Daarom kan `--include-objects` niet samen met `--no-objects` of `--traffic-only` worden gebruikt.
 
 ## Historische statistieken
 
